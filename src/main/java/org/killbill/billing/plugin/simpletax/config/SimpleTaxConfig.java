@@ -16,30 +16,8 @@
  */
 package org.killbill.billing.plugin.simpletax.config;
 
-import static com.google.common.collect.Sets.newLinkedHashSet;
-import static java.lang.Thread.currentThread;
-import static org.apache.commons.lang3.StringUtils.INDEX_NOT_FOUND;
-import static org.apache.commons.lang3.StringUtils.indexOf;
-import static org.apache.commons.lang3.StringUtils.isBlank;
-import static org.apache.commons.lang3.StringUtils.startsWith;
-import static org.killbill.billing.plugin.simpletax.config.ConvertionHelpers.bigDecimal;
-import static org.killbill.billing.plugin.simpletax.config.ConvertionHelpers.country;
-import static org.killbill.billing.plugin.simpletax.config.ConvertionHelpers.integer;
-import static org.killbill.billing.plugin.simpletax.config.ConvertionHelpers.localDate;
-import static org.killbill.billing.plugin.simpletax.config.ConvertionHelpers.resolverConstructor;
-import static org.killbill.billing.plugin.simpletax.config.ConvertionHelpers.splitTaxCodes;
-import static org.killbill.billing.plugin.simpletax.config.ConvertionHelpers.string;
-import static org.killbill.billing.plugin.simpletax.config.ConvertionHelpers.timeZone;
-
-import java.lang.reflect.Constructor;
-import java.math.BigDecimal;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
-
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
-
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.joda.time.DateTimeZone;
 import org.joda.time.LocalDate;
 import org.killbill.billing.plugin.simpletax.TaxComputationContext;
@@ -47,11 +25,23 @@ import org.killbill.billing.plugin.simpletax.internal.Country;
 import org.killbill.billing.plugin.simpletax.internal.TaxCode;
 import org.killbill.billing.plugin.simpletax.resolving.NullTaxResolver;
 import org.killbill.billing.plugin.simpletax.resolving.TaxResolver;
-
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import java.lang.reflect.Constructor;
+import java.math.BigDecimal;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+
+import static com.google.common.collect.Sets.newLinkedHashSet;
+import static java.lang.Thread.currentThread;
+import static org.apache.commons.lang3.StringUtils.*;
+import static org.jooq.tools.StringUtils.isBlank;
+import static org.killbill.billing.plugin.simpletax.config.ConvertionHelpers.*;
 
 /**
  * A configuration accessor for the simple-tax plugin.
@@ -407,5 +397,17 @@ public class SimpleTaxConfig {
             taxCodes.add(taxCode);
         }
         return taxCodes.build();
+    }
+
+    /**
+     * Retrieve credentials for simpletax authorization
+     * 
+     * @return Map of credentials (contains 'username' & 'password')
+     */
+    public Map<String, String> getCredentials(){
+        return new HashMap<String, String>() {{
+            put("username", cfg.get(PROPERTY_PREFIX + "credentials.username"));
+            put("password", cfg.get(PROPERTY_PREFIX + "credentials.password"));
+        }};
     }
 }
