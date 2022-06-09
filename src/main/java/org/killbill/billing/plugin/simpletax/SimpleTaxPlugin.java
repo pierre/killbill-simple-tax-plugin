@@ -181,23 +181,21 @@ public class SimpleTaxPlugin extends PluginInvoicePluginApi implements OSGIKillb
      * Plus, tax codes can be added, changed or removed on historical invoices.
      * The affected tax amounts will be adjusted accordingly.
      *
-     * @param newInvoice
-     *            The invoice that is being created.
-     * @param properties
-     *            Any user-specified plugin properties, coming straight out of
-     *            the API request that has triggered this code to run. See their
-     *            <a href=
-     *            "http://docs.killbill.io/0.15/userguide_payment.html#_plugin_properties"
-     *            >documentation for payment plugins</a>.
-     * @param callCtx
-     *            The context in which this code is running.
+     * @param newInvoice The invoice that is being created.
+     * @param dryRun     Boolean flag determining if the request is dry-run
+     * @param properties Any user-specified plugin properties, coming straight out of
+     *                   the API request that has triggered this code to run. See their
+     *                   <a href=
+     *                   "http://docs.killbill.io/0.15/userguide_payment.html#_plugin_properties"
+     *                   >documentation for payment plugins</a>.
+     * @param callCtx    The context in which this code is running.
      * @return A new immutable list of new tax items, or adjustments on existing
-     *         tax items. Never {@code null}, and guaranteed not having any
-     *         {@code null} elements.
+     * tax items. Never {@code null}, and guaranteed not having any
+     * {@code null} elements.
      */
     @Override
     public List<InvoiceItem> getAdditionalInvoiceItems(Invoice newInvoice, boolean dryRun, Iterable<PluginProperty> properties,
-            CallContext callCtx) {
+                                                       CallContext callCtx) {
 
         TaxComputationContext taxCtx = createTaxComputationContext(newInvoice, callCtx);
         TaxResolver taxResolver = instanciateTaxResolver(taxCtx);
@@ -557,7 +555,12 @@ public class SimpleTaxPlugin extends PluginInvoicePluginApi implements OSGIKillb
                 .withObjectType(INVOICE_ITEM)//
                 .withObjectId(invoiceItemId);
         CustomField field = taxCodesField.build();
+        SimpleTaxConfig config = configHandler.getConfigurable(callCtx.getTenantId());
         try {
+            // added for UnauthenticatedException
+            killbillAPI.getSecurityApi().login(
+                    config.getCredentials().get("username"),
+                    config.getCredentials().get("password"));
             customFieldsService.addCustomFields(newArrayList(field), callCtx);
         } catch (CustomFieldApiException exc) {
             logger.error("Cannot add custom field [" + field.getFieldName() + "] with value [" + field.getFieldValue()
@@ -571,9 +574,13 @@ public class SimpleTaxPlugin extends PluginInvoicePluginApi implements OSGIKillb
                     .getClass().getName())) {
                 throw exc;
             }
-            logger.error("Cannot add custom field [" + field.getFieldName() + "] with value [" + field.getFieldValue()
-                    + "] to *non-existing* invoice item [" + invoiceItemId + "] of invoice ["
-                    + newInvoice.getId() + "] for tenant [" + callCtx.getTenantId() + "]", exc);
+            logger.error(
+                    "Cannot add custom field [" + field.getFieldName() + "] with value [" + field.getFieldValue()
+                            + "] to *non-existing* invoice item [" + invoiceItemId + "] of invoice ["
+                            + newInvoice.getId() + "] for tenant [" + callCtx.getTenantId() + "]", exc);
+        } finally {
+            // logs out
+            killbillAPI.getSecurityApi().logout();
         }
     }
 
