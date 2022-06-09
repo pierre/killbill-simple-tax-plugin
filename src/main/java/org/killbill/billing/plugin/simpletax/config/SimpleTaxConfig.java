@@ -40,7 +40,6 @@ import java.util.Set;
 import static com.google.common.collect.Sets.newLinkedHashSet;
 import static java.lang.Thread.currentThread;
 import static org.apache.commons.lang3.StringUtils.*;
-import static org.jooq.tools.StringUtils.isBlank;
 import static org.killbill.billing.plugin.simpletax.config.ConvertionHelpers.*;
 
 /**
