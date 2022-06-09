@@ -4,8 +4,13 @@ Kill Bill Simple Tax Plugin
 This is a friendly fork of the [original plugin](https://github.com/bgandon/killbill-simple-tax-plugin) written by Benjamin Gandon and licensed under the Apache License, Version 2.0.
 
 This OSGI plugin for the [Kill Bill](http://killbill.io) platform implements
-tax codes with  fixed tax rates and cut-off dates. Tax codes can be associated
+tax codes with fixed tax rates and cut-off dates. Tax codes can be associated
 to products of the Kill Bill catalog, or specifically set on invoice items.
+
+Tax codes can apply to “the whole world” in a single-country scenario, or they
+can be subject to some basic territorial restriction. Currently, they can be
+restricted to countries only, and this country must match exactly the tax
+country that customers accounts are decorated with.
 
 Taxable invoice items then get properly taxed, with the applicable rate, as
 specified in tax codes. Regulation-specific rules can be adapted with custom
@@ -60,7 +65,7 @@ services that started being sold in 2013.)
 
 To deal with that cutoff date (which is well known in France, but everybody
 around the world is not supposed to know, sorry for that), the example config
-sets up 2 tax codes : `VAT_FR_std_2000_19_6%` and then `VAT_FR_std_2014_20_0%`
+sets up 2 tax codes: `VAT_FR_std_2000_19_6%` and then `VAT_FR_std_2014_20_0%`
 (Please note that the percent sign is just a valid character for a tax code
 label; it’s just plain text with no special meaning.)
 
@@ -102,6 +107,22 @@ codes of the example configuration shall only apply to accounts that have
 “taxCountry” properties of “FR”. Any account with no “taxCountry” set or any
 “taxCountry” other than “FR” will not be elligible to any of these French tax
 codes in their invoices.
+
+So, the current implementeation of territorial restriction has several
+limitations.
+
+1. There is no support for retricting tax codes to territories that are
+   subdivisions of countries. The only subdivision available is: country.
+
+2. The country of tax codes must match the tax country of customer accounts.
+   There is no support for customizing this in case any more complicated rules
+   need to be implemented, involving for example a mix of customer location
+   and product type. Here the `TaxResolver` interface might help, but it is
+   meant to select applicable tax codes taking *time* into account, not the
+   geographical *location* or product type.
+
+3. There is no support for customizing how tax code country match the tax
+   country of customer accounts. They must match exactly.
 
 
 Configuration
@@ -179,6 +200,8 @@ The base JSON payload for VATINs follows this structure:
 }
 ```
 
+As a limitation, VATINs can't be deleted yet.
+
 
 #### Assigning tax countries to accounts
 
@@ -203,6 +226,9 @@ The base JSON payload for tax countries follows this structure:
   "taxCountry": "<2-Letter-Country-Code>"
 }
 ```
+
+As a limitation, tax countries assignments can't be deleted yet.
+
 
 ### Forcing specific tax codes on existing invoice items
 
@@ -238,6 +264,8 @@ Payload structure for tax codes:
   ]
 }
 ```
+
+As a limitation, forced tax codes can't be deleted yet from an invoice item.
 
 
 TODO improvements
