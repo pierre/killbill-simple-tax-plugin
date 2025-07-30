@@ -21,6 +21,17 @@ The typical use case for this plugin is a regulatory requirement for a bunch
 of fixed [VAT](https://en.wikipedia.org/wiki/Value-added_tax) rates that can
 change once in a while.
 
+0.24.x Upgrade Notes
+-------
+As of KB version `0.24.15`, the plugin requires the following property in order for tax items to be created:
+
+````
+org.killbill.osgi.system.bundle.export.packages.extra=org.killbill.commons.utils.io
+````
+
+We may be able to get rid of this property if future KB versions export this package by default.
+
+
 Quick start
 -----------
 
@@ -108,10 +119,10 @@ codes of the example configuration shall only apply to accounts that have
 “taxCountry” other than “FR” will not be elligible to any of these French tax
 codes in their invoices.
 
-So, the current implementeation of territorial restriction has several
+So, the current implementation of territorial restriction has several
 limitations.
 
-1. There is no support for retricting tax codes to territories that are
+1. There is no support for restricting tax codes to territories that are
    subdivisions of countries. The only subdivision available is: country.
 
 2. The country of tax codes must match the tax country of customer accounts.
