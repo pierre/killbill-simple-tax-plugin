@@ -129,6 +129,11 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>org.jooby</groupId>
+            <artifactId>jooby</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
             <groupId>org.kill-bill.billing</groupId>
             <artifactId>killbill-api</artifactId>
             <scope>provided</scope>
@@ -169,6 +174,11 @@
         <dependency>
             <groupId>org.kill-bill.commons</groupId>
             <artifactId>killbill-clock</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.kill-bill.commons</groupId>
+            <artifactId>killbill-utils</artifactId>
             <scope>provided</scope>
         </dependency>
         <dependency>
