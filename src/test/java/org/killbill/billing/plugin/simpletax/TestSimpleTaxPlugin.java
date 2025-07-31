@@ -16,6 +16,66 @@
  */
 package org.killbill.billing.plugin.simpletax;
 
+import com.google.common.base.Predicate;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import org.joda.time.LocalDate;
+import org.killbill.billing.account.api.Account;
+import org.killbill.billing.account.api.AccountUserApi;
+import org.killbill.billing.catalog.api.CatalogApiException;
+import org.killbill.billing.catalog.api.CatalogUserApi;
+import org.killbill.billing.catalog.api.Plan;
+import org.killbill.billing.catalog.api.Product;
+import org.killbill.billing.catalog.api.StaticCatalog;
+import org.killbill.billing.invoice.api.Invoice;
+import org.killbill.billing.invoice.api.InvoiceItem;
+import org.killbill.billing.invoice.api.InvoiceUserApi;
+import org.killbill.billing.invoice.plugin.api.AdditionalItemsResult;
+import org.killbill.billing.invoice.plugin.api.InvoiceContext;
+import org.killbill.billing.notification.plugin.api.ExtBusEvent;
+import org.killbill.billing.osgi.libs.killbill.OSGIConfigPropertiesService;
+import org.killbill.billing.osgi.libs.killbill.OSGIKillbillAPI;
+import org.killbill.billing.osgi.libs.killbill.OSGIKillbillClock;
+import org.killbill.billing.payment.api.PluginProperty;
+import org.killbill.billing.plugin.simpletax.config.SimpleTaxConfig;
+import org.killbill.billing.plugin.simpletax.config.http.CustomFieldService;
+import org.killbill.billing.plugin.simpletax.plumbing.SimpleTaxConfigurationHandler;
+import org.killbill.billing.plugin.simpletax.resolving.InvoiceItemEndDateBasedResolver;
+import org.killbill.billing.plugin.simpletax.resolving.fixtures.AbstractTaxResolver;
+import org.killbill.billing.plugin.simpletax.resolving.fixtures.InitFailingTaxResolver;
+import org.killbill.billing.plugin.simpletax.resolving.fixtures.InvalidConstructorTaxResolver;
+import org.killbill.billing.plugin.simpletax.resolving.fixtures.PrivateConstructorTaxResolver;
+import org.killbill.billing.plugin.simpletax.resolving.fixtures.ThrowingTaxResolver;
+import org.killbill.billing.security.api.SecurityApi;
+import org.killbill.billing.tenant.api.TenantUserApi;
+import org.killbill.billing.test.helpers.CustomFieldBuilder;
+import org.killbill.billing.test.helpers.InvoiceBuilder;
+import org.killbill.billing.test.helpers.InvoiceItemBuilder;
+import org.killbill.billing.test.helpers.Promise;
+import org.killbill.billing.util.api.CustomFieldApiException;
+import org.killbill.billing.util.api.CustomFieldUserApi;
+import org.killbill.billing.util.callcontext.CallContext;
+import org.killbill.billing.util.callcontext.TenantContext;
+import org.killbill.billing.util.customfield.CustomField;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
+import org.slf4j.Logger;
+import org.testng.annotations.BeforeClass;
+import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Test;
+
+import java.lang.reflect.InvocationTargetException;
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+
 import static com.google.common.collect.Collections2.filter;
 import static com.google.common.collect.Lists.newArrayList;
 import static com.googlecode.catchexception.CatchException.catchException;
@@ -67,67 +127,6 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 
-import java.lang.reflect.InvocationTargetException;
-import java.math.BigDecimal;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
-
-import org.joda.time.LocalDate;
-import org.killbill.billing.account.api.Account;
-import org.killbill.billing.account.api.AccountUserApi;
-import org.killbill.billing.catalog.api.CatalogApiException;
-import org.killbill.billing.catalog.api.CatalogUserApi;
-import org.killbill.billing.catalog.api.Plan;
-import org.killbill.billing.catalog.api.Product;
-import org.killbill.billing.catalog.api.StaticCatalog;
-import org.killbill.billing.invoice.api.Invoice;
-import org.killbill.billing.invoice.api.InvoiceItem;
-import org.killbill.billing.invoice.api.InvoiceUserApi;
-import org.killbill.billing.notification.plugin.api.ExtBusEvent;
-import org.killbill.billing.osgi.libs.killbill.OSGIKillbillClock;
-import org.killbill.billing.payment.api.PluginProperty;
-import org.killbill.billing.plugin.simpletax.config.SimpleTaxConfig;
-import org.killbill.billing.plugin.simpletax.config.http.CustomFieldService;
-import org.killbill.billing.plugin.simpletax.plumbing.SimpleTaxConfigurationHandler;
-import org.killbill.billing.plugin.simpletax.resolving.InvoiceItemEndDateBasedResolver;
-import org.killbill.billing.plugin.simpletax.resolving.fixtures.AbstractTaxResolver;
-import org.killbill.billing.plugin.simpletax.resolving.fixtures.InitFailingTaxResolver;
-import org.killbill.billing.plugin.simpletax.resolving.fixtures.InvalidConstructorTaxResolver;
-import org.killbill.billing.plugin.simpletax.resolving.fixtures.PrivateConstructorTaxResolver;
-import org.killbill.billing.plugin.simpletax.resolving.fixtures.ThrowingTaxResolver;
-import org.killbill.billing.security.api.SecurityApi;
-import org.killbill.billing.tenant.api.TenantUserApi;
-import org.killbill.billing.test.helpers.CustomFieldBuilder;
-import org.killbill.billing.test.helpers.InvoiceBuilder;
-import org.killbill.billing.test.helpers.InvoiceItemBuilder;
-import org.killbill.billing.test.helpers.Promise;
-import org.killbill.billing.util.api.CustomFieldApiException;
-import org.killbill.billing.util.api.CustomFieldUserApi;
-import org.killbill.billing.util.callcontext.CallContext;
-import org.killbill.billing.util.callcontext.TenantContext;
-import org.killbill.billing.util.customfield.CustomField;
-import org.killbill.clock.Clock;
-import org.killbill.clock.DefaultClock;
-import org.killbill.billing.osgi.libs.killbill.OSGIConfigPropertiesService;
-import org.killbill.billing.osgi.libs.killbill.OSGIKillbillAPI;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Captor;
-import org.mockito.Mock;
-import org.mockito.Mockito;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
-import org.slf4j.Logger;
-import org.testng.annotations.BeforeClass;
-import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.Test;
-
-import com.google.common.base.Predicate;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
-
 /**
  * Tests for {@link SimpleTaxPlugin}.
  *
@@ -147,6 +146,8 @@ public class TestSimpleTaxPlugin {
     private List<PluginProperty> properties = ImmutableList.<PluginProperty> of();
     @Mock
     private CallContext context;
+    @Mock
+    private InvoiceContext invoiceContext;
 
     @Mock
     private InvoiceUserApi invoiceUserApi;
@@ -365,7 +366,7 @@ public class TestSimpleTaxPlugin {
     }
 
     private void withInvoices(Invoice... invoices) throws Exception {
-        when(invoiceUserApi.getInvoicesByAccount(account.getId(), false, false, context))//
+        when(invoiceUserApi.getInvoicesByAccount(account.getId(), false, false, false, invoiceContext))//
                 .thenReturn(asList(invoices));
 
         for (Invoice invoice : invoices) {
@@ -375,7 +376,7 @@ public class TestSimpleTaxPlugin {
 
         List<CustomField> fields = fieldsRelatedTo(invoices);
 
-        when(customFieldUserApi.getCustomFieldsForAccountType(account.getId(), INVOICE_ITEM, context))//
+        when(customFieldUserApi.getCustomFieldsForAccountType(account.getId(), INVOICE_ITEM, invoiceContext))//
                 .thenReturn(fields);
     }
 
@@ -403,18 +404,18 @@ public class TestSimpleTaxPlugin {
         withInvoices(newInvoice);
 
         // When
-        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, context);
+        AdditionalItemsResult additionalItemsResult = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, invoiceContext);
 
         // Then
-        assertTrue(items.size() >= 1);
-        InvoiceItem item1 = items.get(0);
+        assertTrue(additionalItemsResult.getAdditionalItems().size() >= 1);
+        InvoiceItem item1 = additionalItemsResult.getAdditionalItems().get(0);
         assertEquals(item1.getInvoiceItemType(), ITEM_ADJ);
         assertEquals(item1.getLinkedItemId(), tax1.get().getId());
         assertEquals(item1.getAmount(), new BigDecimal("-0.20"));
         assertEquals(item1.getInvoiceId(), invoiceA.getId());
         assertEquals(item1.getStartDate(), invoiceA.getInvoiceDate());
 
-        assertEquals(items.size(), 1);
+        assertEquals(additionalItemsResult.getAdditionalItems().size(), 1);
     }
 
     @Test(groups = "fast")
@@ -425,7 +426,8 @@ public class TestSimpleTaxPlugin {
         withInvoices(newInvoice);
 
         // When
-        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, context);
+        AdditionalItemsResult additionalItemsResult = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, invoiceContext);
+        List<InvoiceItem> items = additionalItemsResult.getAdditionalItems();
 
         // Then
         assertTrue(items.size() >= 1);
@@ -446,7 +448,8 @@ public class TestSimpleTaxPlugin {
         withInvoices(invoiceA, newInvoice);
 
         // When
-        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, context);
+        AdditionalItemsResult additionalItemsResult = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, invoiceContext);
+        List<InvoiceItem> items = additionalItemsResult.getAdditionalItems();
 
         // Then
         assertTrue(items.size() >= 1);
@@ -476,8 +479,8 @@ public class TestSimpleTaxPlugin {
         withInvoices(newInvoice);
 
         // When
-        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, context);
-
+        AdditionalItemsResult additionalItemsResult = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, invoiceContext);
+        List<InvoiceItem> items = additionalItemsResult.getAdditionalItems();
         // Then
         assertEquals(items.size(), 0);
     }
@@ -490,8 +493,8 @@ public class TestSimpleTaxPlugin {
         withInvoices(invoiceC, newInvoice);
 
         // When
-        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, context);
-
+        AdditionalItemsResult additionalItemsResult = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, invoiceContext);
+        List<InvoiceItem> items = additionalItemsResult.getAdditionalItems();
         // Then
         assertEquals(items.size(), 1);
         assertEquals(items.get(0).getAmount(), new BigDecimal("1.60"));
@@ -505,8 +508,8 @@ public class TestSimpleTaxPlugin {
         withInvoices(invoiceE, newInvoice);
 
         // When
-        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, context);
-
+        AdditionalItemsResult additionalItemsResult = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, invoiceContext);
+        List<InvoiceItem> items = additionalItemsResult.getAdditionalItems();
         // Then
         assertEquals(items.size(), 1);
         assertEquals(items.get(0).getAmount(), new BigDecimal("1.80"));
@@ -519,8 +522,8 @@ public class TestSimpleTaxPlugin {
         withInvoices(invoiceD, newInvoice);
 
         // When
-        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, context);
-
+        AdditionalItemsResult additionalItemsResult = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, invoiceContext);
+        List<InvoiceItem> items = additionalItemsResult.getAdditionalItems();
         // Then
         assertEquals(items.size(), 1);
 
@@ -539,8 +542,8 @@ public class TestSimpleTaxPlugin {
         withInvoices(invoiceD, newInvoice);
 
         // When
-        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, context);
-
+        AdditionalItemsResult additionalItemsResult = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, invoiceContext);
+        List<InvoiceItem> items = additionalItemsResult.getAdditionalItems();
         // Then
         assertTrue(items.size() >= 1);
 
@@ -558,14 +561,14 @@ public class TestSimpleTaxPlugin {
     public void shouldCreateNoTaxItemFromConfigWhenCatalogIsNotAvailable() throws Exception {
         // Given
         CallContext context = mock(CallContext.class);
-        when(catalogUserApi.getCurrentCatalog(anyString(), eq(context)))//
+        when(catalogUserApi.getCurrentCatalog(anyString(), eq(invoiceContext)))//
                 .thenThrow(new CatalogApiException(__UNKNOWN_ERROR_CODE));
         Invoice newInvoice = invoiceF;
         withInvoices(invoiceD, newInvoice);
 
         // When
-        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, context);
-
+        AdditionalItemsResult additionalItemsResult = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, invoiceContext);
+        List<InvoiceItem> items = additionalItemsResult.getAdditionalItems();
         // Then
         assertEquals(items.size(), 0);
     }
@@ -575,19 +578,19 @@ public class TestSimpleTaxPlugin {
         // Given
         Account accountWithNullCustomFields = createAccount(FR);
         UUID accountId = accountWithNullCustomFields.getId();
-        when(accountUserApi.getAccountById(accountId, context)).thenReturn(accountWithNullCustomFields);
+        when(accountUserApi.getAccountById(accountId, invoiceContext)).thenReturn(accountWithNullCustomFields); //TODO_TS_218 - change to invoiceContext in other placs in this test?
 
         Invoice invoice = new InvoiceBuilder(accountWithNullCustomFields)//
                 .withItem(new InvoiceItemBuilder().withType(RECURRING).withAmount(SIX)).build();
 
-        when(invoiceUserApi.getInvoicesByAccount(accountId, false, false, context))//
+        when(invoiceUserApi.getInvoicesByAccount(accountId, null, null,false, false, context))//
                 .thenReturn(asList(invoice));
         when(customFieldUserApi.getCustomFieldsForAccountType(accountId, INVOICE_ITEM, context))//
                 .thenReturn(null);
 
         // When
-        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(invoice, false, properties, context);
-
+        AdditionalItemsResult additionalItemsResult = plugin.getAdditionalInvoiceItems(invoice, false, properties, invoiceContext);
+        List<InvoiceItem> items = additionalItemsResult.getAdditionalItems();
         // Then
         assertEquals(items.size(), 0);
     }
@@ -597,19 +600,19 @@ public class TestSimpleTaxPlugin {
         // Given
         Account accountNoCustomFields = createAccount(FR);
         UUID accountId = accountNoCustomFields.getId();
-        when(accountUserApi.getAccountById(accountId, context)).thenReturn(accountNoCustomFields);
+        when(accountUserApi.getAccountById(accountId, invoiceContext)).thenReturn(accountNoCustomFields);
 
         Invoice invoice = new InvoiceBuilder(accountNoCustomFields)//
                 .withItem(new InvoiceItemBuilder().withType(RECURRING).withAmount(SIX)).build();
 
-        when(invoiceUserApi.getInvoicesByAccount(accountId, false, false, context))//
+        when(invoiceUserApi.getInvoicesByAccount(accountId, false, false,  false, context))// //TODO_TS_218 - change to invoiceContext?
                 .thenReturn(asList(invoice));
-        when(customFieldUserApi.getCustomFieldsForAccountType(accountId, INVOICE_ITEM, context))//
+        when(customFieldUserApi.getCustomFieldsForAccountType(accountId, INVOICE_ITEM, context))// //TODO_TS_218 - change to invoiceContext?
                 .thenReturn(ImmutableList.<CustomField> of());
 
         // When
-        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(invoice, false, properties, context);
-
+        AdditionalItemsResult additionalItemsResult = plugin.getAdditionalInvoiceItems(invoice, false, properties, invoiceContext);
+        List<InvoiceItem> items = additionalItemsResult.getAdditionalItems();
         // Then
         assertEquals(items.size(), 0);
     }
@@ -619,22 +622,22 @@ public class TestSimpleTaxPlugin {
         // Given
         Account accountNonTaxFields = createAccount(FR);
         UUID accountId = accountNonTaxFields.getId();
-        when(accountUserApi.getAccountById(accountId, context)).thenReturn(accountNonTaxFields);
+        when(accountUserApi.getAccountById(accountId, invoiceContext)).thenReturn(accountNonTaxFields);
 
         Promise<InvoiceItem> item = holder();
         Invoice invoice = new InvoiceBuilder(accountNonTaxFields)//
                 .withItem(new InvoiceItemBuilder().withType(RECURRING).withAmount(SIX).thenSaveTo(item)).build();
 
-        when(invoiceUserApi.getInvoicesByAccount(accountId, false, false, context))//
-                .thenReturn(asList(invoice));
-        when(customFieldUserApi.getCustomFieldsForAccountType(accountId, INVOICE_ITEM, context))//
+        when(invoiceUserApi.getInvoicesByAccount(accountId, null, null, false, false, context))//
+                .thenReturn(asList(invoice)); //TODO_TS_218 - change to invoiceContext?
+        when(customFieldUserApi.getCustomFieldsForAccountType(accountId, INVOICE_ITEM, context))// //TODO_TS_218 - change to invoiceContext?
                 .thenReturn(asList(new CustomFieldBuilder()//
                         .withObjectType(INVOICE_ITEM).withObjectId(item.get().getId())//
                         .withFieldName("no-tax-field-name").withFieldValue(VAT_20_0).build()));
 
         // When
-        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(invoice, false, properties, context);
-
+        AdditionalItemsResult additionalItemsResult = plugin.getAdditionalInvoiceItems(invoice, false, properties, invoiceContext);
+        List<InvoiceItem> items = additionalItemsResult.getAdditionalItems();
         // Then
         assertEquals(items.size(), 0);
     }
@@ -647,7 +650,7 @@ public class TestSimpleTaxPlugin {
         withInvoices(invoiceE);
 
         // Expect no exception
-        assertEquals(plugin.getAdditionalInvoiceItems(invoiceE, false, properties, context).size(), 0);
+        assertEquals(plugin.getAdditionalInvoiceItems(invoiceE, false, properties, invoiceContext).getAdditionalItems().size(), 0);
     }
 
     @Test(groups = "fast")
@@ -658,7 +661,7 @@ public class TestSimpleTaxPlugin {
         withInvoices(invoiceE);
 
         // Expect no exception
-        assertEquals(plugin.getAdditionalInvoiceItems(invoiceE, false, properties, context).size(), 0);
+        assertEquals(plugin.getAdditionalInvoiceItems(invoiceE, false, properties, invoiceContext).getAdditionalItems().size(), 0);
     }
 
     @Test(groups = "fast")
@@ -669,7 +672,7 @@ public class TestSimpleTaxPlugin {
         withInvoices(invoiceE);
 
         // Expect
-        assertEquals(plugin.getAdditionalInvoiceItems(invoiceE, false, properties, context).size(), 0);
+        assertEquals(plugin.getAdditionalInvoiceItems(invoiceE, false, properties, invoiceContext).getAdditionalItems().size(), 0);
         verify(logger).error( argThat(containsStringIgnoringCase("cannot instanciate tax resolver")),
                 isA(InstantiationException.class));
     }
@@ -682,7 +685,7 @@ public class TestSimpleTaxPlugin {
         withInvoices(invoiceE);
 
         // Expect
-        assertEquals(plugin.getAdditionalInvoiceItems(invoiceE, false, properties, context).size(), 0);
+        assertEquals(plugin.getAdditionalInvoiceItems(invoiceE, false, properties, invoiceContext).getAdditionalItems().size(), 0);
         verify(logger).error(argThat(containsStringIgnoringCase("cannot instanciate tax resolver")),
                 isA(InvocationTargetException.class));
     }
@@ -695,7 +698,7 @@ public class TestSimpleTaxPlugin {
         withInvoices(invoiceE);
 
         // Expect
-        assertEquals(plugin.getAdditionalInvoiceItems(invoiceE, false, properties, context).size(), 0);
+        assertEquals(plugin.getAdditionalInvoiceItems(invoiceE, false, properties, invoiceContext).getAdditionalItems().size(), 0);
         verify(logger).error( argThat(containsStringIgnoringCase("cannot instanciate tax resolver")),
                 isA(ExceptionInInitializerError.class));
     }
@@ -710,7 +713,7 @@ public class TestSimpleTaxPlugin {
         withInvoices(invoiceD);
 
         // When
-        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(invoiceD, false, properties, context);
+        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(invoiceD, false, properties, invoiceContext).getAdditionalItems();
 
         // Then
         assertEquals(items.size(), 0);
@@ -765,7 +768,7 @@ public class TestSimpleTaxPlugin {
         when(event.getObjectId()).thenReturn(invoiceId);
 
         // When
-        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, context);
+        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, invoiceContext).getAdditionalItems();
         plugin.handleKillbillEvent(event);
 
         // Then
@@ -798,7 +801,7 @@ public class TestSimpleTaxPlugin {
         initCatalogStub();
 
         Account account = createAccount(US);
-        when(accountUserApi.getAccountById(eq(account.getId()), eq(context))).thenReturn(account);
+        when(accountUserApi.getAccountById(eq(account.getId()), eq(invoiceContext))).thenReturn(account);
 
         Promise<InvoiceItem> taxable = holder();
         Invoice newInvoice = new InvoiceBuilder(account)//
@@ -812,7 +815,7 @@ public class TestSimpleTaxPlugin {
         withInvoices(newInvoice);
 
         // When
-        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, context);
+        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, invoiceContext).getAdditionalItems();
 
         // Then
         assertEquals(items.size(), 0);
@@ -832,7 +835,7 @@ public class TestSimpleTaxPlugin {
                 customFieldService.findFieldByNameAndAccountAndTenant(eq(TAX_COUNTRY_CUSTOM_FIELD_NAME), eq(accountId),
                         any(TenantContext.class)))//
                 .thenReturn(null);
-        when(accountUserApi.getAccountById(eq(accountId), eq(context))).thenReturn(account);
+        when(accountUserApi.getAccountById(eq(accountId), eq(invoiceContext))).thenReturn(account); //TODO_TS_218 - change to invoiceContext im other places in thi method?
 
         Promise<InvoiceItem> taxable = holder();
         Invoice newInvoice = new InvoiceBuilder(account)//
@@ -846,7 +849,7 @@ public class TestSimpleTaxPlugin {
         withInvoices(newInvoice);
 
         // When
-        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, context);
+        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, invoiceContext).getAdditionalItems();
 
         // Then
         assertEquals(items.size(), 0);
@@ -862,7 +865,7 @@ public class TestSimpleTaxPlugin {
         initCatalogStub();
 
         Account account = createAccount("ZZ-boom!");
-        when(accountUserApi.getAccountById(eq(account.getId()), eq(context))).thenReturn(account);
+        when(accountUserApi.getAccountById(eq(account.getId()), eq(invoiceContext))).thenReturn(account);
 
         Promise<InvoiceItem> taxable = holder();
         Invoice newInvoice = new InvoiceBuilder(account)//
@@ -876,7 +879,7 @@ public class TestSimpleTaxPlugin {
         withInvoices(newInvoice);
 
         // When
-        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, context);
+        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, invoiceContext).getAdditionalItems();
 
         // Then
         assertEquals(items.size(), 0);
@@ -897,7 +900,7 @@ public class TestSimpleTaxPlugin {
         withInvoices(invoiceH, newInvoice);
 
         // When
-        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, context);
+        List<InvoiceItem> items = plugin.getAdditionalInvoiceItems(newInvoice, false, properties, invoiceContext).getAdditionalItems();
 
         // Then
         assertTrue(items.size() >= 1);

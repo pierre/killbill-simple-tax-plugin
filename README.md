@@ -108,10 +108,10 @@ codes of the example configuration shall only apply to accounts that have
 “taxCountry” other than “FR” will not be elligible to any of these French tax
 codes in their invoices.
 
-So, the current implementeation of territorial restriction has several
+So, the current implementation of territorial restriction has several
 limitations.
 
-1. There is no support for retricting tax codes to territories that are
+1. There is no support for restricting tax codes to territories that are
    subdivisions of countries. The only subdivision available is: country.
 
 2. The country of tax codes must match the tax country of customer accounts.

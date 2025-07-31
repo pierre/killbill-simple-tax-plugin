@@ -26,6 +26,7 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.jooby.mvc.Path;
 import org.killbill.billing.osgi.libs.killbill.OSGIKillbillAPI;
 import org.killbill.billing.plugin.core.PluginServlet;
 import org.killbill.billing.plugin.simpletax.config.http.TaxCodeController.TaxCodesPOSTRsc;
@@ -87,6 +88,7 @@ import static org.killbill.billing.plugin.simpletax.plumbing.SimpleTaxActivator.
  *
  * @author Benjamin Gandon
  */
+@Path("/")
 public class SimpleTaxServlet extends PluginServlet {
     private static final long serialVersionUID = 1L;
 

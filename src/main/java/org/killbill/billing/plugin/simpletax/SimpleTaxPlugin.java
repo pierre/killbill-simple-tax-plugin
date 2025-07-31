@@ -16,39 +16,15 @@
  */
 package org.killbill.billing.plugin.simpletax;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.collect.ImmutableSetMultimap.builder;
-import static com.google.common.collect.Iterables.filter;
-import static com.google.common.collect.Iterables.transform;
-import static com.google.common.collect.Lists.newArrayList;
-import static com.google.common.collect.Maps.newHashMap;
-import static com.google.common.collect.Ordering.natural;
-import static java.math.BigDecimal.ZERO;
-import static java.math.RoundingMode.HALF_UP;
-import static org.killbill.billing.ObjectType.INVOICE;
-import static org.killbill.billing.ObjectType.INVOICE_ITEM;
-import static org.killbill.billing.notification.plugin.api.ExtBusEventType.INVOICE_CREATION;
-import static org.killbill.billing.plugin.api.invoice.PluginInvoiceItem.createAdjustmentItem;
-import static org.killbill.billing.plugin.api.invoice.PluginInvoiceItem.createTaxItem;
-import static org.killbill.billing.plugin.simpletax.config.SimpleTaxConfig.DEFAULT_TAX_ITEM_DESC;
-import static org.killbill.billing.plugin.simpletax.config.http.CustomFieldService.TAX_COUNTRY_CUSTOM_FIELD_NAME;
-import static org.killbill.billing.plugin.simpletax.internal.TaxCodeService.TAX_CODES_FIELD_NAME;
-import static org.killbill.billing.plugin.simpletax.plumbing.SimpleTaxActivator.PLUGIN_NAME;
-import static org.killbill.billing.plugin.simpletax.util.InvoiceHelpers.amountWithAdjustments;
-import static org.killbill.billing.plugin.simpletax.util.InvoiceHelpers.sumAmounts;
-
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
-import java.math.BigDecimal;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
-import java.util.UUID;
-
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
-
+import com.google.common.base.Function;
+import com.google.common.base.Predicate;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSetMultimap;
+import com.google.common.collect.Multimap;
+import com.google.common.collect.Ordering;
+import com.google.common.collect.SetMultimap;
 import org.joda.time.DateTime;
 import org.joda.time.LocalDate;
 import org.killbill.billing.account.api.Account;
@@ -58,11 +34,18 @@ import org.killbill.billing.invoice.api.Invoice;
 import org.killbill.billing.invoice.api.InvoiceApiException;
 import org.killbill.billing.invoice.api.InvoiceItem;
 import org.killbill.billing.invoice.api.InvoiceItemType;
+import org.killbill.billing.invoice.plugin.api.AdditionalItemsResult;
+import org.killbill.billing.invoice.plugin.api.InvoiceContext;
+import org.killbill.billing.invoice.plugin.api.boilerplate.plugin.InvoiceContextImp;
 import org.killbill.billing.notification.plugin.api.ExtBusEvent;
+import org.killbill.billing.osgi.libs.killbill.OSGIConfigPropertiesService;
+import org.killbill.billing.osgi.libs.killbill.OSGIKillbillAPI;
 import org.killbill.billing.osgi.libs.killbill.OSGIKillbillClock;
+import org.killbill.billing.osgi.libs.killbill.OSGIKillbillEventDispatcher.OSGIKillbillEventHandler;
+import org.killbill.billing.osgi.libs.killbill.OSGIServiceNotAvailable;
 import org.killbill.billing.payment.api.PluginProperty;
-import org.killbill.billing.plugin.api.PluginCallContext;
 import org.killbill.billing.plugin.api.PluginTenantContext;
+import org.killbill.billing.plugin.api.invoice.PluginAdditionalItemsResult;
 import org.killbill.billing.plugin.api.invoice.PluginInvoicePluginApi;
 import org.killbill.billing.plugin.simpletax.config.SimpleTaxConfig;
 import org.killbill.billing.plugin.simpletax.config.http.CustomFieldService;
@@ -80,23 +63,39 @@ import org.killbill.billing.util.api.CustomFieldUserApi;
 import org.killbill.billing.util.callcontext.CallContext;
 import org.killbill.billing.util.callcontext.TenantContext;
 import org.killbill.billing.util.customfield.CustomField;
-import org.killbill.billing.osgi.libs.killbill.OSGIConfigPropertiesService;
-import org.killbill.billing.osgi.libs.killbill.OSGIKillbillAPI;
-import org.killbill.billing.osgi.libs.killbill.OSGIKillbillEventDispatcher.OSGIKillbillEventHandler;
-import org.killbill.billing.osgi.libs.killbill.OSGIServiceNotAvailable;
-
-import com.google.common.base.Function;
-import com.google.common.base.Predicate;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSetMultimap;
-import com.google.common.collect.Multimap;
-import com.google.common.collect.Ordering;
-import com.google.common.collect.SetMultimap;
-import org.killbill.clock.Clock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+import java.util.UUID;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableSetMultimap.builder;
+import static com.google.common.collect.Iterables.filter;
+import static com.google.common.collect.Iterables.transform;
+import static com.google.common.collect.Lists.newArrayList;
+import static com.google.common.collect.Maps.newHashMap;
+import static com.google.common.collect.Ordering.natural;
+import static java.math.BigDecimal.ZERO;
+import static java.math.RoundingMode.HALF_UP;
+import static org.killbill.billing.ObjectType.INVOICE;
+import static org.killbill.billing.ObjectType.INVOICE_ITEM;
+import static org.killbill.billing.notification.plugin.api.ExtBusEventType.INVOICE_CREATION;
+import static org.killbill.billing.plugin.api.invoice.PluginInvoiceItem.createAdjustmentItem;
+import static org.killbill.billing.plugin.api.invoice.PluginInvoiceItem.createTaxItem;
+import static org.killbill.billing.plugin.simpletax.config.SimpleTaxConfig.DEFAULT_TAX_ITEM_DESC;
+import static org.killbill.billing.plugin.simpletax.config.http.CustomFieldService.TAX_COUNTRY_CUSTOM_FIELD_NAME;
+import static org.killbill.billing.plugin.simpletax.internal.TaxCodeService.TAX_CODES_FIELD_NAME;
+import static org.killbill.billing.plugin.simpletax.util.InvoiceHelpers.amountWithAdjustments;
+import static org.killbill.billing.plugin.simpletax.util.InvoiceHelpers.sumAmounts;
 
 /**
  * Main class for the Kill Bill Simple Tax Plugin.
@@ -153,7 +152,7 @@ public class SimpleTaxPlugin extends PluginInvoicePluginApi implements OSGIKillb
     }
 
     public SimpleTaxPlugin(SimpleTaxConfigurationHandler configHandler, CustomFieldService customFieldService,
-            OSGIKillbillAPI metaApi, OSGIConfigPropertiesService configService,
+                           OSGIKillbillAPI metaApi, OSGIConfigPropertiesService configService,
                            OSGIKillbillClock clockService) {
         this(configHandler, customFieldService, metaApi, configService, clockService, LoggerFactory.getLogger(SimpleTaxPlugin.class));
     }
@@ -188,18 +187,18 @@ public class SimpleTaxPlugin extends PluginInvoicePluginApi implements OSGIKillb
      *                   <a href=
      *                   "http://docs.killbill.io/0.15/userguide_payment.html#_plugin_properties"
      *                   >documentation for payment plugins</a>.
-     * @param callCtx    The context in which this code is running.
+     * @param invCtx    The context in which this code is running.
      * @return A new immutable list of new tax items, or adjustments on existing
      * tax items. Never {@code null}, and guaranteed not having any
      * {@code null} elements.
      */
     @Override
-    public List<InvoiceItem> getAdditionalInvoiceItems(Invoice newInvoice, boolean dryRun, Iterable<PluginProperty> properties,
-                                                       CallContext callCtx) {
+    public AdditionalItemsResult getAdditionalInvoiceItems(final Invoice newInvoice, final boolean dryRun, Iterable<PluginProperty> properties,
+                                                           final InvoiceContext invCtx) {
 
-        TaxComputationContext taxCtx = createTaxComputationContext(newInvoice, callCtx);
+        TaxComputationContext taxCtx = createTaxComputationContext(newInvoice, invCtx);
         TaxResolver taxResolver = instanciateTaxResolver(taxCtx);
-        Map<UUID, TaxCode> newTaxCodes = addMissingTaxCodes(newInvoice, taxResolver, taxCtx, callCtx);
+        Map<UUID, TaxCode> newTaxCodes = addMissingTaxCodes(newInvoice, taxResolver, taxCtx, invCtx);
 
         ImmutableList.Builder<InvoiceItem> additionalItems = ImmutableList.builder();
         for (Invoice invoice : taxCtx.getAllInvoices()) {
@@ -212,7 +211,8 @@ public class SimpleTaxPlugin extends PluginInvoicePluginApi implements OSGIKillb
             }
             additionalItems.addAll(newItems);
         }
-        return additionalItems.build();
+        AdditionalItemsResult additionalItemsResult = new PluginAdditionalItemsResult(additionalItems.build(), null);
+        return additionalItemsResult;
     }
 
     @Override
@@ -246,11 +246,11 @@ public class SimpleTaxPlugin extends PluginInvoicePluginApi implements OSGIKillb
                     exc);
         }
 
-        CallContext callCtx = new PluginCallContext(PLUGIN_NAME, DateTime.now(), null, tenantId);
+        InvoiceContext invCtx = new InvoiceContextImp.Builder<>().withAccountId(null).withTenantId(tenantId).withCreatedDate(DateTime.now()).withInvoice(newInvoice).build();
 
-        TaxComputationContext taxCtx = createTaxComputationContext(newInvoice, callCtx);
+        TaxComputationContext taxCtx = createTaxComputationContext(newInvoice, invCtx);
         TaxResolver taxResolver = instanciateTaxResolver(taxCtx);
-        Map<UUID, TaxCode> newTaxCodes = addMissingTaxCodes(newInvoice, taxResolver, taxCtx, callCtx);
+        Map<UUID, TaxCode> newTaxCodes = addMissingTaxCodes(newInvoice, taxResolver, taxCtx, invCtx);
 
         // Since we're coming from the bus, we need to log-in manually
         // TODO The plugin should have its own table instead of relying on custom fields for this
@@ -260,7 +260,7 @@ public class SimpleTaxPlugin extends PluginInvoicePluginApi implements OSGIKillb
             UUID invoiceItemId = entry.getKey();
             TaxCode taxCode = entry.getValue();
             // Need to do it by listening to the event since we cannot add custom fields until the invoice is created
-            persistTaxCode(taxCode, invoiceItemId, newInvoice, callCtx);
+            persistTaxCode(taxCode, invoiceItemId, newInvoice, invCtx);
         }
     }
 
@@ -270,19 +270,19 @@ public class SimpleTaxPlugin extends PluginInvoicePluginApi implements OSGIKillb
      *
      * @param newInvoice
      *            The invoice that is being created.
-     * @param tenantCtx
+     * @param invCtx
      *            The context in which this code is running.
      * @return An immutable holder for helpful pre-computed data when adding or
      *         adjusting taxes in the account invoices. Never {@code null}.
      */
-    private TaxComputationContext createTaxComputationContext(Invoice newInvoice, TenantContext tenantCtx) {
+    private TaxComputationContext createTaxComputationContext(Invoice newInvoice, InvoiceContext invCtx) {
 
-        SimpleTaxConfig cfg = configHandler.getConfigurable(tenantCtx.getTenantId());
+        SimpleTaxConfig cfg = configHandler.getConfigurable(invCtx.getTenantId());
 
         UUID accountId = newInvoice.getAccountId();
-        Account account = getAccount(accountId, tenantCtx);
+        Account account = getAccount(accountId, invCtx);
         CustomField taxCountryField = customFieldService.findFieldByNameAndAccountAndTenant(
-                TAX_COUNTRY_CUSTOM_FIELD_NAME, accountId, tenantCtx);
+                TAX_COUNTRY_CUSTOM_FIELD_NAME, accountId, invCtx);
         Country accountTaxCountry = null;
         if (taxCountryField != null) {
             try {
@@ -293,12 +293,12 @@ public class SimpleTaxPlugin extends PluginInvoicePluginApi implements OSGIKillb
             }
         }
 
-        Set<Invoice> allInvoices = allInvoicesOfAccount(account, newInvoice, tenantCtx);
+        Set<Invoice> allInvoices = allInvoicesOfAccount(account, newInvoice, invCtx);
 
         Function<InvoiceItem, BigDecimal> toAdjustedAmount = toAdjustedAmount(allInvoices);
         Ordering<InvoiceItem> byAdjustedAmount = natural().onResultOf(toAdjustedAmount);
 
-        TaxCodeService taxCodeService = taxCodeService(account, allInvoices, cfg, tenantCtx);
+        TaxCodeService taxCodeService = taxCodeService(account, allInvoices, cfg, invCtx);
 
         return new TaxComputationContext(cfg, account, accountTaxCountry, allInvoices, toAdjustedAmount,
                 byAdjustedAmount, taxCodeService);
@@ -318,15 +318,15 @@ public class SimpleTaxPlugin extends PluginInvoicePluginApi implements OSGIKillb
      * @param newInvoice
      *            The new invoice that is being created, which might have
      *            already been saved or not.
-     * @param tenantCtx
+     * @param invCtx
      *            The context in which this code is running.
      * @return A new immutable set of all invoices for the account, including
      *         the new one being created. Never {@code null}, and guaranteed not
      *         having any {@code null} elements.
      */
-    private Set<Invoice> allInvoicesOfAccount(Account account, Invoice newInvoice, TenantContext tenantCtx) {
+    private Set<Invoice> allInvoicesOfAccount(Account account, Invoice newInvoice, InvoiceContext invCtx) {
         ImmutableSet.Builder<Invoice> builder = ImmutableSet.builder();
-        builder.addAll(getInvoicesByAccountId(account.getId(), tenantCtx));
+        builder.addAll(getInvoicesByAccountId(account.getId(), invCtx));
 
         // Workaround for https://github.com/killbill/killbill/issues/265
         builder.add(newInvoice);
