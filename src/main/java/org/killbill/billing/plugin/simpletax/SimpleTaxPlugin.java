@@ -275,7 +275,7 @@ public class SimpleTaxPlugin extends PluginInvoicePluginApi implements OSGIKillb
      * @return An immutable holder for helpful pre-computed data when adding or
      *         adjusting taxes in the account invoices. Never {@code null}.
      */
-    private TaxComputationContext createTaxComputationContext(Invoice newInvoice, InvoiceContext invCtx) { //TODO_TS_218 - change this to InvoiceContext?
+    private TaxComputationContext createTaxComputationContext(Invoice newInvoice, InvoiceContext invCtx) {
 
         SimpleTaxConfig cfg = configHandler.getConfigurable(invCtx.getTenantId());
 
